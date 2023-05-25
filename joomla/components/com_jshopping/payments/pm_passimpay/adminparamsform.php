@@ -10,7 +10,16 @@ defined('_JEXEC') or die();
 ?>
 <div class="col100">
 <fieldset class="adminform">
+<legend></legend>
 <table class="admintable" width = "100%" >
+<caption></caption>
+<thead>
+ <tr>
+   <th></th>
+   <th></th>
+ </tr>
+</thead>
+<tbody>
  <tr>
    <td  class="key">API KEY</td>
    <td>
@@ -68,6 +77,7 @@ defined('_JEXEC') or die();
      ?>
    </td>
  </tr>
+</tbody>
 </table>
 </fieldset>
 </div>
