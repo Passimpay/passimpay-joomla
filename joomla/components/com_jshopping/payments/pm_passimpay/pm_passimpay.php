@@ -8,25 +8,29 @@
 */
 defined('_JEXEC') or die();
 
-class pm_passimpay extends PaymentRoot{
+class pm_passimpay extends PaymentRoot
+{
 
     private $curlopt_sslversion = 6;
     
-    function showPaymentForm($params, $pmconfigs){
-        include(dirname(__FILE__)."/paymentform.php");
+    public function showPaymentForm($params, $pmconfigs)
+	{
+        include_once(dirname(__FILE__)."/paymentform.php");
     }
 	
-	function showAdminFormParams($params){
+	public function showAdminFormParams($params)
+	{
 	  $array_params = array('api_key', 'platform_id', 'transaction_end_status', 'transaction_pending_status', 'transaction_failed_status');
 	  foreach ($array_params as $key){
 	  	if (!isset($params[$key])) $params[$key] = '';
 	  }
 	  
 	  $orders = JSFactory::getModel('orders', 'JshoppingModel'); //admin model
-      include(dirname(__FILE__)."/adminparamsform.php");
+      include_once(dirname(__FILE__)."/adminparamsform.php");
 	}
 
-	function checkTransaction($pmconfigs, $order, $act){
+	public function checkTransaction($pmconfigs, $order, $act)
+	{
         $jshopConfig = JSFactory::getConfig();
         
         $url = 'https://passimpay.io/api/orderstatus';
@@ -54,8 +58,8 @@ class pm_passimpay extends PaymentRoot{
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
 		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+		//curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+		//curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
 		$result = curl_exec($curl);
 		curl_close( $curl );
 
@@ -89,7 +93,8 @@ class pm_passimpay extends PaymentRoot{
         
 	}
 
-	function showEndForm($pmconfigs, $order){
+	public function showEndForm($pmconfigs, $order)
+	{
         $jshopConfig = JSFactory::getConfig();
         $pm_method = $this->getPmMethod();
 		
@@ -120,8 +125,8 @@ class pm_passimpay extends PaymentRoot{
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
 		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+		//curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+		//curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
 		$result = curl_exec($curl);
 		curl_close( $curl );
 
@@ -143,7 +148,8 @@ class pm_passimpay extends PaymentRoot{
 		die();
 	}
     
-    function getUrlParams($pmconfigs){
+    public function getUrlParams($pmconfigs)
+	{
         $params = array(); 
         $params['order_id'] = JFactory::getApplication()->input->getInt("order_id");
         $params['hash'] = "";
@@ -152,7 +158,8 @@ class pm_passimpay extends PaymentRoot{
     return $params;
     }
     
-	function fixOrderTotal($order){
+	public function fixOrderTotal($order)
+	{
         $total = $order->order_total;
         if ($order->currency_code_iso=='HUF'){
             $total = round($total);
