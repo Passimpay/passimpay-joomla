@@ -33,7 +33,7 @@ class pm_passimpay extends PaymentRoot
 	{
         $jshopConfig = JSFactory::getConfig();
         
-        $url = 'https://passimpay.io/api/orderstatus';
+        $url = 'https://api.passimpay.io/orderstatus';
 		$platform_id = $pmconfigs['platform_id']; // Platform ID
 		$apikey = $pmconfigs['api_key']; // Secret key
 		$order_id = $order->order_id; // Payment ID of your platform
@@ -98,7 +98,7 @@ class pm_passimpay extends PaymentRoot
         $jshopConfig = JSFactory::getConfig();
         $pm_method = $this->getPmMethod();
 		
-		$url = 'https://passimpay.io/api/createorder';
+		$url = 'https://api.passimpay.io/createorder';
 		$platform_id = $pmconfigs['platform_id']; // Platform ID
 		$apikey = $pmconfigs['api_key']; // Secret key
 		$order_id = $order->order_id; // Payment ID of your platform
