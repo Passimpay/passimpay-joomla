@@ -17,9 +17,9 @@ class pm_passimpay extends PaymentRoot{
     }
 	
 	function showAdminFormParams($params){
-	  $array_params = array('api_key', 'platform_id', 'transaction_end_status', 'transaction_pending_status', 'transaction_failed_status');
+	  $array_params = array('api_key', 'platform_id', 'payment_type', 'transaction_end_status', 'transaction_pending_status', 'transaction_failed_status');
 	  foreach ($array_params as $key){
-	  	if (!isset($params[$key])) $params[$key] = '';
+	  	if (!isset($params[$key])) $params[$key] = ($key === 'payment_type') ? 0 : '';
 	  }
 	  
 	  $orders = JSFactory::getModel('orders', 'JshoppingModel'); //admin model
@@ -29,27 +29,24 @@ class pm_passimpay extends PaymentRoot{
 	function checkTransaction($pmconfigs, $order, $act){
         $jshopConfig = JSFactory::getConfig();
         
-        $url = 'https://api.passimpay.io/orderstatus';
-		$platform_id = $pmconfigs['platform_id']; // Platform ID
-		$apikey = $pmconfigs['api_key']; // Secret key
-		$order_id = $order->order_id; // Payment ID of your platform
+        $url = 'https://api.passimpay.io/v2/orderstatus';
+		$platform_id = (int) $pmconfigs['platform_id'];
+		$apikey = $pmconfigs['api_key'];
+		$order_id = (string) $order->order_id;
 
-		$payload = http_build_query(['platform_id' => $platform_id, 'order_id' => $order_id]);
-		$hash = hash_hmac('sha256', $payload, $apikey);
-
-		$data = [
-			'platform_id' => $platform_id,
-			'order_id' => $order_id,
-			'hash' => $hash,
-		];
-
-		$post_data = http_build_query($data);
+		$body = ['platformId' => $platform_id, 'orderId' => $order_id];
+		$json_body = json_encode($body, JSON_UNESCAPED_SLASHES);
+		$signature_string = $platform_id . ';' . $json_body . ';' . $apikey;
+		$signature = hash_hmac('sha256', $signature_string, $apikey);
 
 		$curl = curl_init();
 		curl_setopt($curl, CURLOPT_HEADER, false);
-		curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, [
+			'Content-Type: application/json',
+			'x-signature: ' . $signature,
+		]);
 		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curl, CURLOPT_POSTFIELDS, $post_data);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $json_body);
 		curl_setopt($curl, CURLOPT_URL, $url);
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
@@ -60,62 +57,58 @@ class pm_passimpay extends PaymentRoot{
 		curl_close( $curl );
 
 		$result = json_decode($result, true);
-
 		$transaction = 0;
 		$transactiondata = [];
-		// Response options
-		// In case of success
-		if (isset($result['result']) && $result['result'] == 1)
+
+		if (isset($result['result']) && (int) $result['result'] === 1)
 		{
-			if ($result['status'] == 'paid')
+			$status = isset($result['status']) ? $result['status'] : '';
+			if ($status === 'paid')
 			{
 				return array(1, '', $transaction, $transactiondata);
 			}
-			elseif ($result['status'] == 'error')
+			if ($status === 'error')
 			{
 				return array(0, 'Invalid response. Order ID '.$order->order_id, $transaction, $transactiondata);
 			}
-			else
-			{
-				return array(2, "Status pending. Order ID ".$order->order_id, $transaction, $transactiondata);
-			}
+			return array(2, "Status pending. Order ID ".$order->order_id, $transaction, $transactiondata);
 		}
-		// In case of an error
-		else
-		{
-			saveToLog("payment.log", "Invalid response. Order ID ".$order->order_id.". " . $result['message']);
-			return array(0, 'Invalid response. Order ID '.$order->order_id, $transaction, $transactiondata);
-		}
-        
+		$msg = isset($result['message']) ? $result['message'] : '';
+		saveToLog("payment.log", "Invalid response. Order ID ".$order->order_id.". " . $msg);
+		return array(0, 'Invalid response. Order ID '.$order->order_id, $transaction, $transactiondata);
 	}
 
 	function showEndForm($pmconfigs, $order){
         $jshopConfig = JSFactory::getConfig();
         $pm_method = $this->getPmMethod();
 		
-		$url = 'https://api.passimpay.io/createorder';
-		$platform_id = $pmconfigs['platform_id']; // Platform ID
-		$apikey = $pmconfigs['api_key']; // Secret key
-		$order_id = $order->order_id; // Payment ID of your platform
+		$url = 'https://api.passimpay.io/v2/createorder';
+		$platform_id = (int) $pmconfigs['platform_id'];
+		$apikey = $pmconfigs['api_key'];
+		$order_id = (string) $order->order_id;
 		$amount = $this->fixOrderTotal($order);
+		$payment_type = isset($pmconfigs['payment_type']) ? (int) $pmconfigs['payment_type'] : 0; // 0=both, 1=crypto, 2=card
+		$currency = isset($order->currency_code_iso) ? strtoupper($order->currency_code_iso) : 'USD';
 
-		$payload = http_build_query(['platform_id' => $platform_id, 'order_id' => $order_id, 'amount' => $amount]);
-		$hash = hash_hmac('sha256', $payload, $apikey);
-
-		$data = [
-			'platform_id' => $platform_id,
-			'order_id' => $order_id,
+		$body = [
+			'platformId' => $platform_id,
+			'orderId' => $order_id,
 			'amount' => $amount,
-			'hash' => $hash,
+			'symbol' => $currency,
+			'type' => $payment_type,
 		];
-
-		$post_data = http_build_query($data);
+		$json_body = json_encode($body, JSON_UNESCAPED_SLASHES);
+		$signature_string = $platform_id . ';' . $json_body . ';' . $apikey;
+		$signature = hash_hmac('sha256', $signature_string, $apikey);
 
 		$curl = curl_init();
 		curl_setopt($curl, CURLOPT_HEADER, false);
-		curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, [
+			'Content-Type: application/json',
+			'x-signature: ' . $signature,
+		]);
 		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curl, CURLOPT_POSTFIELDS, $post_data);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $json_body);
 		curl_setopt($curl, CURLOPT_URL, $url);
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
@@ -127,20 +120,12 @@ class pm_passimpay extends PaymentRoot{
 
 		$result = json_decode($result, true);
 
-		// Response options
-		// In case of success
-		if (isset($result['result']) && $result['result'] == 1)
+		if (isset($result['result']) && (int) $result['result'] === 1 && !empty($result['url']))
 		{
 			header('Location: ' . $result['url']);
 			exit();
 		}
-		// In case of an error
-		else
-		{
-			die('Error create order');
-		}
-		
-		die();
+		die('Error create order');
 	}
     
     function getUrlParams($pmconfigs){
