@@ -19,6 +19,17 @@ $lang->load('com_jshopping_pm_passimpay', __DIR__, null, true);
     <td><input type="text" class="inputbox" name="pm_params[platform_id]" value="<?php echo htmlspecialchars($params['platform_id']); ?>" /></td>
   </tr>
   <tr>
+    <td class="key"><?php echo Text::_('COM_JSHOP_PASSIMPAY_PAYMENT_TYPE'); ?></td>
+    <td>
+      <select name="pm_params[payment_type]" class="inputbox" id="pm_passimpay_payment_type">
+        <option value="0"<?php echo (isset($params['payment_type']) && (int)$params['payment_type'] === 0) ? ' selected="selected"' : ''; ?>><?php echo Text::_('COM_JSHOP_PASSIMPAY_PAYMENT_TYPE_BOTH'); ?></option>
+        <option value="1"<?php echo (isset($params['payment_type']) && (int)$params['payment_type'] === 1) ? ' selected="selected"' : ''; ?>><?php echo Text::_('COM_JSHOP_PASSIMPAY_PAYMENT_TYPE_CRYPTO'); ?></option>
+        <option value="2"<?php echo (isset($params['payment_type']) && (int)$params['payment_type'] === 2) ? ' selected="selected"' : ''; ?>><?php echo Text::_('COM_JSHOP_PASSIMPAY_PAYMENT_TYPE_CARD'); ?></option>
+      </select>
+      <div class="com_jshop_passimpay_card_notice" style="margin-top:8px;padding:10px 12px;background:#fff8e5;border-left:4px solid #f0ad4e;color:#856404;<?php echo (isset($params['payment_type']) && (int)$params['payment_type'] !== 1) ? '' : 'display:none;'; ?>">&#9432; <?php echo Text::_('COM_JSHOP_PASSIMPAY_CARD_NOTICE'); ?></div>
+    </td>
+  </tr>
+  <tr>
     <td class="key">URL notifications</td>
     <td><?php echo JURI::root()."index.php?option=com_jshopping&controller=checkout&task=step7&act=notify&js_paymentclass=pm_passimpay&no_lang=1"; ?></td>
   </tr>
@@ -60,3 +71,15 @@ $lang->load('com_jshopping_pm_passimpay', __DIR__, null, true);
 </fieldset>
 </div>
 <div class="clr"></div>
+<script>
+(function(){
+  var sel = document.getElementById('pm_passimpay_payment_type');
+  var notice = document.querySelector('.com_jshop_passimpay_card_notice');
+  if (sel && notice) {
+    sel.addEventListener('change', function(){
+      var v = parseInt(this.value, 10);
+      notice.style.display = (v === 0 || v === 2) ? 'block' : 'none';
+    });
+  }
+})();
+</script>
