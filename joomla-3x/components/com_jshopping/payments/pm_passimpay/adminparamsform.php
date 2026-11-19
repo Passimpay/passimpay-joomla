@@ -23,13 +23,13 @@ defined('_JEXEC') or die();
  <tr>
    <td  class="key">API KEY</td>
    <td>
-     <input type = "text" class = "inputbox" name = "pm_params[api_key]" value = "<?php echo $params['api_key']?>" />
+     <input type = "text" class = "inputbox" name = "pm_params[api_key]" value = "<?php echo htmlspecialchars((string)$params['api_key'], ENT_QUOTES, 'UTF-8')?>" />
    </td>
  </tr>
  <tr>
    <td  class="key">Platform ID</td>
    <td>
-     <input type = "text" class = "inputbox" name = "pm_params[platform_id]" value = "<?php echo $params['platform_id']?>" />
+     <input type = "text" class = "inputbox" name = "pm_params[platform_id]" value = "<?php echo htmlspecialchars((string)$params['platform_id'], ENT_QUOTES, 'UTF-8')?>" />
    </td>
  </tr>
  <tr>

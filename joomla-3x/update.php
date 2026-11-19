@@ -24,5 +24,5 @@ $addon->installPayment($data);
 
 $addon->loadAlias('addon_pm_passimpay');
 $addon->set('name', 'Passimpay');
-$addon->set('version', '1.0.0');   
+$addon->set('version', '1.0.1');
 $addon->store();

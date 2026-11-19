@@ -12,6 +12,7 @@ class pm_passimpay extends PaymentRoot
 {
 
     private $curlopt_sslversion = 6;
+    private $webhookOrderId;
     
     public function showPaymentForm($params, $pmconfigs)
 	{
@@ -29,143 +30,213 @@ class pm_passimpay extends PaymentRoot
       include_once(dirname(__FILE__)."/adminparamsform.php");
 	}
 
-	public function checkTransaction($pmconfigs, $order, $act)
-	{
-        $jshopConfig = JSFactory::getConfig();
-        
-        $url = 'https://api.passimpay.io/orderstatus';
-		$platform_id = $pmconfigs['platform_id']; // Platform ID
-		$apikey = $pmconfigs['api_key']; // Secret key
-		$order_id = $order->order_id; // Payment ID of your platform
+	function checkTransaction($pmconfigs, $order, $act){
+        if ($act !== 'notify' || $this->webhookOrderId !== (string)$order->order_id) {
+            $this->reply(400, 'Invalid notification');
+        }
+        $paidStatus = (int)($pmconfigs['transaction_end_status'] ?? 0);
+        if ($paidStatus <= 0) {
+            $this->reply(503, 'Payment status not configured');
+        }
+        // Повтор не меняет уже оплаченный текущий статус; ручные переходы задаёт CMS.
+        if ((int)$order->order_status === $paidStatus) {
+            $this->reply(200, 'OK');
+        }
+        $url = 'https://api.passimpay.io/v2/orderstatus';
+		$platform_id = (int) $pmconfigs['platform_id'];
+		$apikey = $pmconfigs['api_key'];
+		$order_id = (string) $order->order_id;
 
-		$payload = http_build_query(['platform_id' => $platform_id, 'order_id' => $order_id]);
-		$hash = hash_hmac('sha256', $payload, $apikey);
-
-		$data = [
-			'platform_id' => $platform_id,
-			'order_id' => $order_id,
-			'hash' => $hash,
-		];
-
-		$post_data = http_build_query($data);
+		$body = ['platformId' => $platform_id, 'orderId' => $order_id];
+		$json_body = json_encode($body);
+		$signature_string = $platform_id . ';' . $json_body . ';' . $apikey;
+		$signature = hash_hmac('sha256', $signature_string, $apikey);
 
 		$curl = curl_init();
 		curl_setopt($curl, CURLOPT_HEADER, false);
-		curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, [
+			'Content-Type: application/json',
+			'x-signature: ' . $signature,
+		]);
 		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curl, CURLOPT_POSTFIELDS, $post_data);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $json_body);
 		curl_setopt($curl, CURLOPT_URL, $url);
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
-		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-		//curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-		//curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, false);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, true);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 2);
 		$result = curl_exec($curl);
+		$httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 		curl_close( $curl );
 
-		$result = json_decode($result, true);
-
+		$result = is_string($result) ? json_decode($result, true) : null;
 		$transaction = 0;
 		$transactiondata = [];
-		// Response options
-		// In case of success
-		if (isset($result['result']) && $result['result'] == 1)
+
+		if ($httpCode === 200 && is_array($result) && isset($result['result']) && $result['result'] === 1)
 		{
-			if ($result['status'] == 'paid')
+			$status = isset($result['status']) ? $result['status'] : '';
+			if ($status === 'paid')
 			{
 				return array(1, '', $transaction, $transactiondata);
 			}
-			elseif ($result['status'] == 'error')
+			if ($status === 'error')
 			{
 				return array(0, 'Invalid response. Order ID '.$order->order_id, $transaction, $transactiondata);
 			}
-			else
-			{
-				return array(2, "Status pending. Order ID ".$order->order_id, $transaction, $transactiondata);
-			}
+            if ($status === 'wait') {
+                return array(2, "Status pending. Order ID ".$order->order_id, $transaction, $transactiondata);
+            }
 		}
-		// In case of an error
-		else
-		{
-			saveToLog("payment.log", "Invalid response. Order ID ".$order->order_id.". " . $result['message']);
-			return array(0, 'Invalid response. Order ID '.$order->order_id, $transaction, $transactiondata);
-		}
-        
-	}
+        saveToLog('payment.log', 'Passimpay: status check failed for order ' . (int)$order->order_id);
+        $this->reply(503, 'Status check failed');
+    }
 
-	public function showEndForm($pmconfigs, $order)
-	{
-        $jshopConfig = JSFactory::getConfig();
-        $pm_method = $this->getPmMethod();
+	function showEndForm($pmconfigs, $order){
 		
-		$url = 'https://api.passimpay.io/createorder';
-		$platform_id = $pmconfigs['platform_id']; // Platform ID
-		$apikey = $pmconfigs['api_key']; // Secret key
-		$order_id = $order->order_id; // Payment ID of your platform
+		$url = 'https://api.passimpay.io/v2/createorder';
+		$platform_id = (int) $pmconfigs['platform_id'];
+		$apikey = $pmconfigs['api_key'];
+		$order_id = (string) $order->order_id;
 		$amount = $this->fixOrderTotal($order);
 
-		$payload = http_build_query(['platform_id' => $platform_id, 'order_id' => $order_id, 'amount' => $amount]);
-		$hash = hash_hmac('sha256', $payload, $apikey);
 
-		$data = [
-			'platform_id' => $platform_id,
-			'order_id' => $order_id,
+        if (filter_var($pmconfigs['platform_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false || !is_string($apikey) || $apikey === ''
+            || !preg_match('/^[0-9]+\.[0-9]{2}$/D', $amount)) {
+            $this->reply(503, 'Invalid payment configuration');
+        }
+		$body = [
+			'platformId' => $platform_id,
+			'orderId' => $order_id,
 			'amount' => $amount,
-			'hash' => $hash,
+			'symbol' => 'USD',
+			'type' => 1,
 		];
-
-		$post_data = http_build_query($data);
+		$json_body = json_encode($body);
+		$signature_string = $platform_id . ';' . $json_body . ';' . $apikey;
+		$signature = hash_hmac('sha256', $signature_string, $apikey);
 
 		$curl = curl_init();
 		curl_setopt($curl, CURLOPT_HEADER, false);
-		curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, [
+			'Content-Type: application/json',
+			'x-signature: ' . $signature,
+		]);
 		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curl, CURLOPT_POSTFIELDS, $post_data);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $json_body);
 		curl_setopt($curl, CURLOPT_URL, $url);
 		curl_setopt($curl, CURLOPT_POST, true);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
-		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-		//curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-		//curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, false);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, true);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 2);
 		$result = curl_exec($curl);
+		$httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 		curl_close( $curl );
 
-		$result = json_decode($result, true);
+		$result = is_string($result) ? json_decode($result, true) : null;
 
-		// Response options
-		// In case of success
-		if (isset($result['result']) && $result['result'] == 1)
-		{
-			header('Location: ' . $result['url']);
-			exit();
-		}
-		// In case of an error
-		else
-		{
-			die('Error create order');
-		}
-		
-		die();
-	}
-    
-    public function getUrlParams($pmconfigs)
-	{
-        $params = array(); 
-        $params['order_id'] = JFactory::getApplication()->input->getInt("order_id");
-        $params['hash'] = "";
-        $params['checkHash'] = 0;
-        $params['checkReturnParams'] = 0;
-    return $params;
+        $parts = is_array($result) && isset($result['url']) && is_string($result['url']) ? parse_url($result['url']) : false;
+        if ($httpCode === 200 && is_array($result) && isset($result['result']) && $result['result'] === 1
+            && $parts && filter_var($result['url'], FILTER_VALIDATE_URL) && $parts['scheme'] === 'https'
+            && !isset($parts['user']) && !isset($parts['pass'])) {
+            JFactory::getApplication()->redirect($result['url']);
+            JFactory::getApplication()->close();
+        }
+        $this->reply(503, 'Unable to create payment');
     }
-    
-	public function fixOrderTotal($order)
-	{
+
+    function getUrlParams($pmconfigs){
+        $input = JFactory::getApplication()->input;
+        $params = ['order_id' => $input->getInt('order_id'), 'hash' => '', 'checkHash' => 0, 'checkReturnParams' => 0];
+        if ($input->getCmd('act') === 'return') {
+            return $params;
+        }
+        if ($input->getCmd('act') !== 'notify' || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            $this->reply(405, 'Method not allowed');
+        }
+        $rawBody = file_get_contents('php://input', false, null, 0, 65537);
+        if ($rawBody === false || strlen($rawBody) > 65536) {
+            $this->reply(413, 'Invalid body');
+        }
+        $data = json_decode($rawBody, true);
+        $platformId = (int)($pmconfigs['platform_id'] ?? 0);
+        $secret = $pmconfigs['api_key'] ?? '';
+        if (filter_var($pmconfigs['platform_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false || !is_string($secret) || $secret === '') {
+            $this->reply(503, 'Payment not configured');
+        }
+        if (!$this->validateWebhook($data, $platformId)) {
+            $this->reply(400, 'Invalid payload');
+        }
+        $signature = $_SERVER['HTTP_X_SIGNATURE'] ?? '';
+        $payload = json_encode($data);
+        if (!is_string($signature) || !preg_match('/^[a-f0-9]{64}$/D', $signature) || $payload === false
+            || !hash_equals(hash_hmac('sha256', $platformId . ';' . $payload . ';' . $secret, $secret), $signature)) {
+            $this->reply(403, 'Invalid signature');
+        }
+        // Удерживаем блокировку до завершения штатного обновления заказа JoomShopping.
+        $db = JFactory::getDbo();
+        $lock = 'pp_js_' . substr(hash('sha256', JFactory::getApplication()->get('db') . ';' . $db->getPrefix() . ';' . $data['orderId']), 0, 50);
+        if ((int)$db->setQuery("SELECT GET_LOCK('" . $lock . "', 0)")->loadResult() !== 1) {
+            $this->reply(503, 'Order is busy');
+        }
+        register_shutdown_function(function () use ($db, $lock) {
+            $db->setQuery("SELECT RELEASE_LOCK('" . $lock . "')")->loadResult();
+        });
+        $db->setQuery('SELECT payment_method_id FROM #__jshopping_orders WHERE order_id = ' . (int)$data['orderId']);
+        $paymentId = (int)$db->loadResult();
+        $method = $this->getPmMethod();
+        if (!$paymentId || $paymentId !== (int)$method->payment_id) {
+            $this->reply(404, 'Order not found');
+        }
+        $this->webhookOrderId = $data['orderId'];
+        $params['order_id'] = (int)$data['orderId'];
+        return $params;
+    }
+
+    function nofityFinish($pmconfigs, $order, $rescode){
+        $this->reply(200, 'OK');
+    }
+
+    private function reply($code, $text){
+        http_response_code($code);
+        echo $text;
+        JFactory::getApplication()->close();
+    }
+
+	function fixOrderTotal($order){
         $total = $order->order_total;
         if ($order->currency_code_iso=='HUF'){
             $total = round($total);
-        }else{
-            $total = number_format($total, 2, '.', '');
         }
-    return $total;
+    return number_format($total, 2, '.', '');
+    }
+    private function validateWebhook($params, $platformId)
+    {
+        if (!is_array($params) || !isset($params['type'], $params['platformId'], $params['orderId'])
+            || $params['type'] !== 'deposit' || !is_int($params['platformId']) || $params['platformId'] <= 0
+            || $params['platformId'] !== $platformId || !is_string($params['orderId'])
+            || strlen($params['orderId']) > 64 || !preg_match('/^[1-9][0-9]*$/D', $params['orderId'])
+            || filter_var($params['orderId'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+            return false;
+        }
+        foreach (['paymentId', 'confirmations', 'destinationTag'] as $field) {
+            if (array_key_exists($field, $params) && (!is_int($params[$field]) || $params[$field] < ($field === 'paymentId' ? 1 : 0))) {
+                return false;
+            }
+        }
+        foreach (['amount', 'amountReceive', 'feeService', 'feeNetwork'] as $field) {
+            if (array_key_exists($field, $params) && (!is_string($params[$field]) || strlen($params[$field]) > 128
+                || !preg_match('/^[0-9]+(?:\.[0-9]+)?$/D', $params[$field]))) {
+                return false;
+            }
+        }
+        foreach (['txhash', 'addressFrom', 'addressTo'] as $field) {
+            if (array_key_exists($field, $params) && (!is_string($params[$field]) || strlen($params[$field]) > 512)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

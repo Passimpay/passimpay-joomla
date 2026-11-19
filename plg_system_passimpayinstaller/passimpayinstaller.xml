@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" group="system" method="upgrade" version="5.0">
+  <name>plg_system_passimpayinstaller</name>
+  <author>Passimpay</author>
+  <version>1.0.1</version>
+  <description>Installer for Passimpay payment method (JoomShopping 5.x)</description>
+  <scriptfile>script.php</scriptfile>
+  <files>
+    <filename plugin="passimpayinstaller">passimpayinstaller.php</filename>
+    <folder>files</folder>
+  </files>
+</extension>
